@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -134,9 +135,6 @@ struct rte_ring *rx_to_workers;
 struct rte_ring *rx_to_workers2;
 struct rte_ring *workers_to_tx;
 struct rte_ring *workers_to_tx2;
-
-struct  rte_ring *rx_to_workers_10;
-struct  rte_ring *rx_to_workers_20;
 
 static uint64_t delayed_time = 0;
 
@@ -384,10 +382,10 @@ demu_tx_loop(unsigned portid)
 static void
 demu_rx_loop(unsigned portid)
 {
-	struct rte_mbuf *pkts_burst[PKT_BURST_RX], *rx2w_buffer[PKT_BURST_RX];
+	struct rte_mbuf *pkts_burst[PKT_BURST_RX], *rx2w_buffer[PKT_BURST_RX] ,*rx2w_buffer2[PKT_BURST_RX];
 	unsigned lcore_id;
 
-	unsigned nb_rx, i;
+	unsigned nb_rx, i ,ip1,ip2;
 	unsigned nb_loss;
 	unsigned nb_dup;
 	uint32_t numenq;
@@ -395,27 +393,43 @@ demu_rx_loop(unsigned portid)
 	lcore_id = rte_lcore_id();
 
 	RTE_LOG(INFO, DEMU, "Entering main rx loop on lcore %u portid %u\n", lcore_id, portid);
-
+    unsigned count=0;
 	while (!force_quit) {
 		nb_rx = rte_eth_rx_burst((uint8_t) portid, 0, pkts_burst, PKT_BURST_RX);
 
 		if (likely(nb_rx == 0))
 			continue;
-
+		count++;
+		RTE_LOG(INFO, DEMU, "rx %u\n", count);
+        ip1=0;
+        ip2=0;
 		nb_loss = 0;
 		nb_dup = 0;
 		for (i = 0; i < nb_rx; i++) {
 			struct rte_mbuf *clone;
 
-			if (portid == 0 && loss_event()) {
-				port_statistics[portid].discarded++;
-				nb_loss++;
-				continue;
-			}
+//			if (portid == 0 && loss_event()) {
+//				port_statistics[portid].discarded++;
+//				nb_loss++;
+//				continue;
+//			}
 
-			rx2w_buffer[i - nb_loss + nb_dup] = pkts_burst[i];
-			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - nb_loss + nb_dup], void *));
-			rx2w_buffer[i - nb_loss + nb_dup]->udata64 = rte_rdtsc();
+//			rx2w_buffer[i - nb_loss + nb_dup] = pkts_burst[i];
+//			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - nb_loss + nb_dup], void *));
+//			rx2w_buffer[i - nb_loss + nb_dup]->udata64 = rte_rdtsc();
+
+            if(i %2 ==1){ // 模拟ip 区分
+                rx2w_buffer[ip1] = pkts_burst[i];
+                //rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[ip1], void *));
+                rx2w_buffer[ip1]->udata64 = rte_rdtsc();
+                ip1++;
+            }else{
+                rx2w_buffer2[ip2] = pkts_burst[i];
+                //rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer2[ip2 - nb_loss + nb_dup], void *));
+                rx2w_buffer2[ip2]->udata64 = rte_rdtsc();
+                ip2++;
+            }
+
 
 			//try add ip parse
 //			int resa = ss_parser_pkt(&pkts_burst[i]);
@@ -425,13 +439,13 @@ demu_rx_loop(unsigned portid)
 //			RTE_LOG(INFO,DEMU,"*******12**");
 
 			/* FIXME: we do not check the buffer overrun of rx2w_buffer. */
-			if (portid == 0 && dup_event()) {
-				clone = rte_pktmbuf_clone(rx2w_buffer[i - nb_loss + nb_dup], demu_pktmbuf_pool);
-				if (clone == NULL)
-					RTE_LOG(ERR, DEMU, "cannot clone a packet\n");
-				nb_dup++;
-				rx2w_buffer[i - nb_loss + nb_dup] = clone;
-			}
+//			if (portid == 0 && dup_event()) {
+//				clone = rte_pktmbuf_clone(rx2w_buffer[i - nb_loss + nb_dup], demu_pktmbuf_pool);
+//				if (clone == NULL)
+//					RTE_LOG(ERR, DEMU, "cannot clone a packet\n");
+//				nb_dup++;
+//				rx2w_buffer[i - nb_loss + nb_dup] = clone;
+//			}
 
 #ifdef DEBUG_RX
 			if (rx_cnt < RX_STAT_BUF_SIZE) {
@@ -442,9 +456,16 @@ demu_rx_loop(unsigned portid)
 
 		}
 
-		if (portid == 0)
-			numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
-					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
+		if (portid == 1){
+		    numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
+                    (void *)rx2w_buffer, ip1, NULL);
+
+		    numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
+                    (void *)rx2w_buffer2, ip2, NULL);
+
+		}
+//			numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
+//					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
 		else
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
 					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
@@ -923,14 +944,6 @@ ret = demu_parse_args(argc, argv);
 	check_all_ports_link_status(nb_ports, demu_enabled_port_mask);
 
 
-//    rx_to_workers_10 = rte_ring_create("rx_to_workers", DEMU_DELAYED_BUFFER_PKTS,
-//    			rte_socket_id(),   RING_F_SP_ENQ | RING_F_SC_DEQ);
-//    	if (rx_to_workers_10 == NULL)
-//    		rte_exit(EXIT_FAILURE, "%s\n", rte_strerror(rte_errno));
-//    rx_to_workers_20 = rte_ring_create("rx_to_workers", DEMU_DELAYED_BUFFER_PKTS,
-//        			rte_socket_id(),   RING_F_SP_ENQ | RING_F_SC_DEQ);
-//        	if (rx_to_workers_20 == NULL)
-//        		rte_exit(EXIT_FAILURE, "%s\n", rte_strerror(rte_errno));
 
 	rx_to_workers = rte_ring_create("rx_to_workers", DEMU_DELAYED_BUFFER_PKTS,
 			rte_socket_id(),   RING_F_SP_ENQ | RING_F_SC_DEQ);
