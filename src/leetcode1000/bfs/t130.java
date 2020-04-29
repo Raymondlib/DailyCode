@@ -1,18 +1,8 @@
-class test{
-    static void print(char [][] b){
-//        int m =b.length;
-//        int n = b[0].length;
-//        for(int i=0;i<m;i++){
-//            for(int j=0;j<n;j++){
-//                System.out.print(b[i][j]+" ");
-//            }
-//            System.out.println();
-//        }
-    }
+package leetcode1000.bfs;
+
+public class t130 {
     static void bfs(int x, int y, int m, int n, char[][] board){
         board[x][y] = 'A';
-        print(board);
-        System.out.println();
         int [] dx= {-1,0,1,0};
         int [] dy= {0,1,0,-1};
         for(int i=0;i<4;i++){
@@ -29,9 +19,10 @@ class test{
 
     public static void solve(char[][] board)  {
         int m = board.length;
+        if(m==0) return;
         int n= board[0].length;
-
-        if(m==0 || n==0) return ;
+        if( n==0) return ;
+        // 从边界开始bfs，但是这个代码写的太麻烦了
         for(int i=0;i<m;i++){
             if(board[i][0] == 'O'){
                 bfs(i,0,m,n,board);
@@ -52,12 +43,16 @@ class test{
                 bfs(m-1,i,m,n,board);
             }
         }
-        for(int i=0;i<m;i++){
-            for(int j=0;j<n;j++){
-                System.out.print(board[i][j]+" ");
-            }
-            System.out.println();
-        }
+        //应该改成
+//        for(int i){
+//            for (int j){
+//                boolean isEdge = i==0||j == 0 || i == m - 1 || j == n - 1;
+//                if(isEdge && board[i][j] == 'O'){
+//                    bfs()
+//                }
+//            }
+//        }
+
         for(int i=0;i<m;i++){
             for(int j=0;j<n;j++){
                 if(board[i][j]=='A'){
@@ -67,7 +62,7 @@ class test{
                 }
             }
         }
-        print(board);
+
 
     }
     public static void main(String[] args) {
