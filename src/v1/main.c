@@ -136,6 +136,8 @@ struct rte_ring *rx_to_workers2;
 struct rte_ring *workers_to_tx;
 struct rte_ring *workers_to_tx2;
 
+struct rte_ring *header_pointers;
+
 static uint64_t delayed_time = 0;
 
 enum demu_loss_mode {
@@ -400,7 +402,7 @@ demu_rx_loop(unsigned portid)
 		if (likely(nb_rx == 0))
 			continue;
 		count++;
-		RTE_LOG(INFO, DEMU, "rx %u\n", count);
+//		RTE_LOG(INFO, DEMU, "rx %u\n", count);
         ip1=0;
         ip2=0;
 		nb_loss = 0;
@@ -420,7 +422,7 @@ demu_rx_loop(unsigned portid)
 
             if(i %2 ==1){ // 模拟ip 区分
                 rx2w_buffer[ip1] = pkts_burst[i];
-                //rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[ip1], void *));
+                //rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[ip1], void *)); //引起 segment fault，先注释掉
                 rx2w_buffer[ip1]->udata64 = rte_rdtsc();
                 ip1++;
             }else{
@@ -430,13 +432,8 @@ demu_rx_loop(unsigned portid)
                 ip2++;
             }
 
-
-			//try add ip parse
-//			int resa = ss_parser_pkt(&pkts_burst[i]);
-//			printf("*********");
-			int resa = ss_parser_pkt(pkts_burst[i]);
-//			printf("*********");
-//			RTE_LOG(INFO,DEMU,"*******12**");
+            // ip解析
+			//int resa = ss_parser_pkt(pkts_burst[i]);
 
 			/* FIXME: we do not check the buffer overrun of rx2w_buffer. */
 //			if (portid == 0 && dup_event()) {
@@ -460,22 +457,84 @@ demu_rx_loop(unsigned portid)
 		    numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
                     (void *)rx2w_buffer, ip1, NULL);
 
+            RTE_LOG(INFO, DEMU, "ip1: %u, ip2: %u\n",ip1,ip2);
+            RTE_LOG(INFO, DEMU, "rx_to_workers,enqueue %u\n",numenq);
+            RTE_LOG(INFO, DEMU, "rx_to_workers,size %u\n",rte_ring_count(rx_to_workers));
+            // 将ring 加入头指针队列
+            numenq = rte_ring_sp_enqueue(header_pointers, &rx_to_workers);
+            if (numenq != 0){RTE_LOG(INFO, DEMU, "head-pointer add fail\n");}
+            else{
+                RTE_LOG(INFO, DEMU, "head-pointer*********\n");
+                // 取出
+//                struct rte_ring ** temp_ring_point;
+//                int headpointers=rte_ring_dequeue(header_pointers,
+//                            (void **) temp_ring_point);
+//                if(headpointers ==0){
+//                    RTE_LOG(INFO, DEMU, "head-pointer get out ss\n");
+//                }else{
+//                    RTE_LOG(INFO, DEMU, "head-pointer get out fail\n");
+//                }
+                if(rte_ring_count(header_pointers)>0){
+                    RTE_LOG(INFO,DEMU,"head size = %u",rte_ring_count(header_pointers));
+                    //取出
+                    RTE_LOG(INFO, DEMU, "head-pointer get out ss\n");
+                    void ** temp_ring_point;
+                    int headpointers=rte_ring_dequeue(header_pointers,
+                                &(temp_ring_point));
+
+//                    if(temp_ring_point == &rx_to_workers){
+//                        RTE_LOG(INFO, DEMU, "p = p \n");
+//                    }else{
+//                        RTE_LOG(INFO, DEMU, "temp_ring_point** %p \n",(temp_ring_point));
+//                        RTE_LOG(INFO, DEMU, "rx_to_workers** %p \n",rx_to_workers);
+//
+//                        RTE_LOG(INFO, DEMU, "temp_ring_point** %p \n",(*temp_ring_point));
+//
+//                    }
+                    if(headpointers ==0){
+                        struct rte_mbuf *burst_buffer[PKT_BURST_WORKER];
+                        RTE_LOG(INFO,DEMU,"rx_to_workers size = %u",rte_ring_count(rx_to_workers));
+                        RTE_LOG(INFO,DEMU,"rx_to_workers2 size = %u",rte_ring_count(rx_to_workers2));
+                        RTE_LOG(INFO,DEMU,"*temp_ring_point size = %u",rte_ring_count(*temp_ring_point));
+                        struct rte_ring * one = *temp_ring_point;
+                        RTE_LOG(INFO,DEMU,"temp_ring_point3 size = %u",rte_ring_count(one));
+                        RTE_LOG(INFO,DEMU,"temp_ring_point size = %u",rte_ring_count((struct rte_ring *)temp_ring_point));
+                        RTE_LOG(INFO,DEMU,"temp_ring_point2 size = %u",rte_ring_count(temp_ring_point));
+
+                        unsigned burst_size = rte_ring_sc_dequeue_burst(one,(void *)burst_buffer, PKT_BURST_WORKER, NULL);
+                        if(burst_size >0){
+                            RTE_LOG(INFO, DEMU, "temp_ring_point burst_size %u\n",burst_size);
+                        }else RTE_LOG(INFO, DEMU, "temp_ring_point burst_fail %u\n",burst_size);
+
+                    }else{
+                        RTE_LOG(INFO, DEMU, "head-pointer get out fail\n");
+                    }
+
+//                    unsigned burst_size;
+//                    struct rte_mbuf *burst_buffer[PKT_BURST_WORKER];
+//                    burst_size = rte_ring_sc_dequeue_burst(*temp_ring_point,(void *)burst_buffer, PKT_BURST_WORKER, NULL);
+                    RTE_LOG(INFO, DEMU, "burst ss\n");
+                }else{
+                    RTE_LOG(INFO, DEMU, "head-pointer get out fail\n");
+                }
+
+            }
 		    numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
                     (void *)rx2w_buffer2, ip2, NULL);
 
 		}
 //			numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
 //					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
-		else
-			numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
-					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
+//		else
+//			numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
+//					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
 
 
-		if (unlikely(numenq < (unsigned)(nb_rx - nb_loss + nb_dup))) {
-			RTE_LOG(WARNING, DEMU, "Delayed Queue Overflow count: %d\n",
-				(nb_rx - nb_loss + nb_dup) - numenq);
-			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - nb_loss + nb_dup - numenq);
-		}
+//		if (unlikely(numenq < (unsigned)(nb_rx - nb_loss + nb_dup))) {
+//			RTE_LOG(WARNING, DEMU, "Delayed Queue Overflow count: %d\n",
+//				(nb_rx - nb_loss + nb_dup) - numenq);
+//			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - nb_loss + nb_dup - numenq);
+//		}
 	}
 }
 
@@ -944,6 +1003,11 @@ ret = demu_parse_args(argc, argv);
 	check_all_ports_link_status(nb_ports, demu_enabled_port_mask);
 
 
+
+    header_pointers = rte_ring_create("header_pointers", 4,
+            rte_socket_id(),   RING_F_SP_ENQ | RING_F_SC_DEQ);
+    if (header_pointers == NULL)
+        rte_exit(EXIT_FAILURE, "can not make header pointer %s\n", rte_strerror(rte_errno));
 
 	rx_to_workers = rte_ring_create("rx_to_workers", DEMU_DELAYED_BUFFER_PKTS,
 			rte_socket_id(),   RING_F_SP_ENQ | RING_F_SC_DEQ);
