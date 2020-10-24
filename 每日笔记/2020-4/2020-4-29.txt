@@ -1,0 +1,15 @@
+今日目标
+    修改编译实验代码
+    整理阿里云面经
+    看深入理解计算机系统
+
+8点半 - 9点
+    手撕算法 leetcode 1095，山峰数组的二分查找
+
+09点23分 -10 点
+    复习整理昨日笔记，
+    看深入理解计算机系统
+    修改实验代码
+
+
+./configure CFLAGS=-I/home/user/dpdk-stable-17.11.9/usr/local/include/dpdk LDFLAGS=-L/home/user/dpdk-stable-17.11.9usr/local/lib
